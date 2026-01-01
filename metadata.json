@@ -1,0 +1,7 @@
+{
+  "name": "Poe's Menu Planner v2",
+  "description": "A sophisticated recipe manager with custom Auth, offline sync resilience, and AI discovery.",
+  "requestFramePermissions": [
+    "camera"
+  ]
+}
