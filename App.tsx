@@ -42,6 +42,13 @@ import {
 } from 'lucide-react';
 import { Recipe, RotationItem, ViewState, SyncStatus, VaultData, Ingredient, User } from './types';
 import { extractRecipeFromText, discoverRecipes, generateDishImage } from './services/gemini';
+import { 
+  signUpWithEmail, 
+  signInWithEmail, 
+  signOutUser, 
+  onAuthStateChange,
+  isAuthConfigured 
+} from './services/firebase';
 
 // --- Configuration ---
 const MASCOT_IMAGE_URL = "https://lh3.googleusercontent.com/d/1YTgCTPn4YGhBj2UelnzvM_7XqBVmkVF-";
@@ -90,20 +97,37 @@ const StarRating: React.FC<{ rating: number; onRate?: (n: number) => void; size?
 };
 
 // --- Auth Views ---
-const AuthPortal: React.FC<{ onAuth: (user: User) => void }> = ({ onAuth }) => {
+const AuthPortal: React.FC<{ onAuth: (user: User) => void; onError: (msg: string) => void }> = ({ onAuth, onError }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
+  const [useFirebase, setUseFirebase] = useState(isAuthConfigured());
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
-    // Simulate API delay
-    setTimeout(() => {
-      onAuth({ id: 'u_' + Date.now(), email, name: email.split('@')[0] });
+
+    try {
+      if (useFirebase) {
+        // Use Firebase Authentication
+        let user: User;
+        if (isLogin) {
+          user = await signInWithEmail(email, password);
+        } else {
+          user = await signUpWithEmail(email, password);
+        }
+        onAuth(user);
+      } else {
+        // Fallback to simulated authentication for development/demo
+        await new Promise(r => setTimeout(r, 1200));
+        onAuth({ id: 'demo_' + Date.now(), email, name: email.split('@')[0] });
+      }
+    } catch (error: any) {
+      onError(error.message || 'Authentication failed. Please try again.');
+    } finally {
       setLoading(false);
-    }, 1200);
+    }
   };
 
   return (
@@ -115,9 +139,18 @@ const AuthPortal: React.FC<{ onAuth: (user: User) => void }> = ({ onAuth }) => {
             <h2 className="text-4xl font-serif font-black mb-4 leading-tight">Welcome to <br/>the Vault.</h2>
             <p className="text-slate-400 font-medium italic">"Every great chef needs a secret collection. Keep yours safe and synced anywhere in the world."</p>
             <div className="mt-12 flex items-center gap-3">
-              <div className="w-1.5 h-1.5 bg-teal-400 rounded-full animate-pulse"></div>
-              <span className="text-[10px] font-black uppercase tracking-[0.4em] text-teal-400">Poe Sync Protocol Active</span>
+              <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${useFirebase ? 'bg-teal-400' : 'bg-amber-400'}`}></div>
+              <span className="text-[10px] font-black uppercase tracking-[0.4em] text-teal-400">
+                {useFirebase ? 'Firebase Auth Enabled' : 'Demo Mode Active'}
+              </span>
             </div>
+            {!useFirebase && (
+              <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
+                <p className="text-[9px] text-amber-200 font-medium leading-relaxed">
+                  Configure Firebase credentials to enable secure cloud authentication.
+                </p>
+              </div>
+            )}
         </div>
         <div className="p-12 md:p-16">
            <div className="flex gap-8 mb-12 border-b-2 border-slate-100 pb-2">
@@ -132,9 +165,10 @@ const AuthPortal: React.FC<{ onAuth: (user: User) => void }> = ({ onAuth }) => {
               </div>
               <div className="space-y-2">
                 <label className="text-[10px] font-black uppercase tracking-widest text-slate-400 ml-1">Password</label>
-                <input required type="password" value={password} onChange={e => setPassword(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-200 rounded-2xl focus:border-teal-500 focus:outline-none font-bold" placeholder="••••••••" />
+                <input required type="password" minLength={6} value={password} onChange={e => setPassword(e.target.value)} className="w-full px-6 py-4 bg-slate-50 border-2 border-slate-200 rounded-2xl focus:border-teal-500 focus:outline-none font-bold" placeholder="••••••••" />
+                {!isLogin && <p className="text-[9px] text-slate-400 ml-1">Minimum 6 characters</p>}
               </div>
-              <button disabled={loading} className="w-full py-5 bg-slate-950 text-white rounded-3xl font-black uppercase tracking-[0.3em] text-xs hover:bg-teal-600 transition-all flex items-center justify-center gap-3 shadow-xl">
+              <button disabled={loading} className="w-full py-5 bg-slate-950 text-white rounded-3xl font-black uppercase tracking-[0.3em] text-xs hover:bg-teal-600 transition-all flex items-center justify-center gap-3 shadow-xl disabled:opacity-50 disabled:cursor-not-allowed">
                 {loading ? <Loader2 className="animate-spin" size={20} /> : <Zap size={18} />}
                 {isLogin ? 'Enter Vault' : 'Initialize Vault'}
               </button>
@@ -270,10 +304,8 @@ const ShoppingList: React.FC<{ recipe: Recipe }> = ({ recipe }) => (
 
 // --- Main App Component ---
 const App: React.FC = () => {
-  const [user, setUser] = useState<User | null>(() => {
-    const saved = localStorage.getItem('poe_session');
-    return saved ? JSON.parse(saved) : null;
-  });
+  const [user, setUser] = useState<User | null>(null);
+  const [authInitialized, setAuthInitialized] = useState(false);
 
   const [recipes, setRecipes] = useState<Recipe[]>([]);
   const [rotation, setRotation] = useState<RotationItem[]>([]);
@@ -286,6 +318,35 @@ const App: React.FC = () => {
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('synced');
   const [isOnline, setIsOnline] = useState(navigator.onLine);
+
+  // --- Firebase Auth State Listener ---
+  useEffect(() => {
+    // Check for saved session first (fallback for demo mode)
+    const saved = localStorage.getItem('poe_session');
+    if (saved && !isAuthConfigured()) {
+      setUser(JSON.parse(saved));
+      setAuthInitialized(true);
+      return;
+    }
+
+    // Set up Firebase auth state listener if configured
+    if (isAuthConfigured()) {
+      const unsubscribe = onAuthStateChange((firebaseUser) => {
+        if (firebaseUser) {
+          setUser(firebaseUser);
+          localStorage.setItem('poe_session', JSON.stringify(firebaseUser));
+        } else {
+          setUser(null);
+          localStorage.removeItem('poe_session');
+        }
+        setAuthInitialized(true);
+      });
+
+      return () => unsubscribe();
+    } else {
+      setAuthInitialized(true);
+    }
+  }, []);
 
   // --- Persistence & Sync Engine ---
 
@@ -388,16 +449,31 @@ const App: React.FC = () => {
   // --- Auth Handlers ---
   const handleAuth = (u: User) => {
     setUser(u);
-    localStorage.setItem('poe_session', JSON.stringify(u));
+    if (!isAuthConfigured()) {
+      // Demo mode - save to localStorage
+      localStorage.setItem('poe_session', JSON.stringify(u));
+    }
+    // Firebase mode - session is automatically managed by onAuthStateChange
     showToast(`Welcome, Chef ${u.name}!`, 'success');
   };
 
-  const handleLogout = () => {
-    setUser(null);
-    localStorage.removeItem('poe_session');
-    setRecipes([]);
-    setRotation([]);
-    setView('library');
+  const handleLogout = async () => {
+    try {
+      if (isAuthConfigured()) {
+        // Use Firebase sign out
+        await signOutUser();
+      } else {
+        // Demo mode - clear local storage
+        localStorage.removeItem('poe_session');
+      }
+      setUser(null);
+      setRecipes([]);
+      setRotation([]);
+      setView('library');
+      showToast('Signed out successfully', 'info');
+    } catch (error: any) {
+      showToast(error.message || 'Failed to sign out', 'error');
+    }
   };
 
   // --- Business Logic ---
@@ -427,7 +503,18 @@ const App: React.FC = () => {
                   .sort((a,b) => a.title.localeCompare(b.title));
   }, [recipes, searchQuery]);
 
-  if (!user) return <AuthPortal onAuth={handleAuth} />;
+  if (!authInitialized) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-slate-950">
+        <div className="text-center">
+          <Loader2 size={64} className="text-teal-500 animate-spin mx-auto mb-4" />
+          <p className="text-slate-400 font-black uppercase tracking-widest text-xs">Initializing Vault...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) return <AuthPortal onAuth={handleAuth} onError={(msg) => showToast(msg, 'error')} />;
 
   return (
     <div className="min-h-screen flex flex-col md:flex-row bg-white relative">
