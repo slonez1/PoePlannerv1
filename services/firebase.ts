@@ -38,12 +38,12 @@ import { User } from '../types';
 // Firebase configuration
 // In production, these should be set via environment variables
 const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || process.env.VITE_FIREBASE_API_KEY,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || process.env.VITE_FIREBASE_AUTH_DOMAIN,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || process.env.VITE_FIREBASE_PROJECT_ID,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || process.env.VITE_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || process.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || process.env.VITE_FIREBASE_APP_ID
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
 // Check if Firebase is configured
@@ -97,9 +97,10 @@ export const signUpWithEmail = async (email: string, password: string): Promise<
     await updateProfile(userCredential.user, { displayName });
     
     return convertFirebaseUser(userCredential.user);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Sign-up error:', error);
-    throw new Error(getAuthErrorMessage(error.code));
+    const errorCode = (error as { code?: string }).code || 'unknown';
+    throw new Error(getAuthErrorMessage(errorCode));
   }
 };
 
@@ -118,9 +119,10 @@ export const signInWithEmail = async (email: string, password: string): Promise<
   try {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     return convertFirebaseUser(userCredential.user);
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Sign-in error:', error);
-    throw new Error(getAuthErrorMessage(error.code));
+    const errorCode = (error as { code?: string }).code || 'unknown';
+    throw new Error(getAuthErrorMessage(errorCode));
   }
 };
 

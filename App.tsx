@@ -123,8 +123,9 @@ const AuthPortal: React.FC<{ onAuth: (user: User) => void; onError: (msg: string
         await new Promise(r => setTimeout(r, 1200));
         onAuth({ id: 'demo_' + Date.now(), email, name: email.split('@')[0] });
       }
-    } catch (error: any) {
-      onError(error.message || 'Authentication failed. Please try again.');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Authentication failed. Please try again.';
+      onError(message);
     } finally {
       setLoading(false);
     }
@@ -471,8 +472,9 @@ const App: React.FC = () => {
       setRotation([]);
       setView('library');
       showToast('Signed out successfully', 'info');
-    } catch (error: any) {
-      showToast(error.message || 'Failed to sign out', 'error');
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to sign out';
+      showToast(message, 'error');
     }
   };
 
