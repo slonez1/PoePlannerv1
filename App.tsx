@@ -49,6 +49,10 @@ import {
   onAuthStateChange,
   isAuthConfigured 
 } from './services/firebase';
+import {
+  syncVaultWithCloud,
+  isFirestoreConfigured
+} from './services/firestore';
 
 // --- Configuration ---
 const MASCOT_IMAGE_URL = "https://lh3.googleusercontent.com/d/1YTgCTPn4YGhBj2UelnzvM_7XqBVmkVF-";
@@ -103,6 +107,7 @@ const AuthPortal: React.FC<{ onAuth: (user: User) => void; onError: (msg: string
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [useFirebase, setUseFirebase] = useState(isAuthConfigured());
+  const [hasFirestore, setHasFirestore] = useState(isFirestoreConfigured());
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -139,16 +144,25 @@ const AuthPortal: React.FC<{ onAuth: (user: User) => void; onError: (msg: string
             <img src={APP_ICON_URL} className="w-16 h-16 rounded-2xl mb-8 animate-float" />
             <h2 className="text-4xl font-serif font-black mb-4 leading-tight">Welcome to <br/>the Vault.</h2>
             <p className="text-slate-400 font-medium italic">"Every great chef needs a secret collection. Keep yours safe and synced anywhere in the world."</p>
-            <div className="mt-12 flex items-center gap-3">
-              <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${useFirebase ? 'bg-teal-400' : 'bg-amber-400'}`}></div>
-              <span className="text-[10px] font-black uppercase tracking-[0.4em] text-teal-400">
-                {useFirebase ? 'Firebase Auth Enabled' : 'Demo Mode Active'}
-              </span>
+            <div className="mt-12 space-y-3">
+              <div className="flex items-center gap-3">
+                <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${useFirebase ? 'bg-teal-400' : 'bg-amber-400'}`}></div>
+                <span className="text-[10px] font-black uppercase tracking-[0.4em] text-teal-400">
+                  {useFirebase ? 'Firebase Auth Enabled' : 'Demo Mode Active'}
+                </span>
+              </div>
+              <div className="flex items-center gap-3">
+                <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${hasFirestore ? 'bg-teal-400' : 'bg-amber-400'}`}></div>
+                <span className="text-[10px] font-black uppercase tracking-[0.4em] text-teal-400">
+                  {hasFirestore ? 'Cloud Sync Active' : 'Local Storage Only'}
+                </span>
+              </div>
             </div>
-            {!useFirebase && (
+            {(!useFirebase || !hasFirestore) && (
               <div className="mt-4 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
                 <p className="text-[9px] text-amber-200 font-medium leading-relaxed">
-                  Configure Firebase credentials to enable secure cloud authentication.
+                  {!useFirebase && 'Configure Firebase to enable secure cloud authentication and sync. '}
+                  {!hasFirestore && useFirebase && 'Enable Firestore to sync recipes across all your devices.'}
                 </p>
               </div>
             )}
@@ -375,7 +389,7 @@ const App: React.FC = () => {
     }
   }, [user]);
 
-  // 3. Sync Engine (Conflict Resolution)
+  // 3. Sync Engine (Conflict Resolution with Firestore)
   const syncWithCloud = useCallback(async () => {
     if (!user || !isOnline) {
       setSyncStatus('offline');
@@ -384,36 +398,54 @@ const App: React.FC = () => {
 
     setSyncStatus('syncing');
     
-    // Simulate API delay
+    // Simulate API delay for UX consistency
     await new Promise(r => setTimeout(r, 800));
 
     try {
-      const cloudRaw = localStorage.getItem(`${REMOTE_STORAGE_KEY}_${user.id}`);
-      const cloudData: VaultData | null = cloudRaw ? JSON.parse(cloudRaw) : null;
       const localData: VaultData = { recipes, rotation, lastUpdated };
-
-      if (!cloudData) {
-        // First time cloud sync
-        localStorage.setItem(`${REMOTE_STORAGE_KEY}_${user.id}`, JSON.stringify(localData));
+      
+      if (isFirestoreConfigured()) {
+        // Use Firestore for real cloud sync
+        const syncedData = await syncVaultWithCloud(user.id, localData);
+        
+        // If cloud data was newer, update local state
+        if (syncedData.lastUpdated !== localData.lastUpdated) {
+          setRecipes(syncedData.recipes);
+          setRotation(syncedData.rotation);
+          setLastUpdated(syncedData.lastUpdated);
+          // Update local cache
+          localStorage.setItem(`vault_${user.id}`, JSON.stringify(syncedData));
+        }
         setSyncStatus('synced');
       } else {
-        // Compare Timestamps (Last-Write-Wins)
-        if (cloudData.lastUpdated > localData.lastUpdated) {
-          // Cloud is newer -> Update Local
-          setRecipes(cloudData.recipes);
-          setRotation(cloudData.rotation);
-          setLastUpdated(cloudData.lastUpdated);
-          localStorage.setItem(`vault_${user.id}`, JSON.stringify(cloudData));
-          setSyncStatus('synced');
-        } else if (localData.lastUpdated > cloudData.lastUpdated) {
-          // Local is newer -> Push to Cloud
+        // Fallback to localStorage-based "cloud" for demo/development mode
+        const cloudRaw = localStorage.getItem(`${REMOTE_STORAGE_KEY}_${user.id}`);
+        const cloudData: VaultData | null = cloudRaw ? JSON.parse(cloudRaw) : null;
+
+        if (!cloudData) {
+          // First time cloud sync
           localStorage.setItem(`${REMOTE_STORAGE_KEY}_${user.id}`, JSON.stringify(localData));
           setSyncStatus('synced');
         } else {
-          setSyncStatus('synced');
+          // Compare Timestamps (Last-Write-Wins)
+          if (cloudData.lastUpdated > localData.lastUpdated) {
+            // Cloud is newer -> Update Local
+            setRecipes(cloudData.recipes);
+            setRotation(cloudData.rotation);
+            setLastUpdated(cloudData.lastUpdated);
+            localStorage.setItem(`vault_${user.id}`, JSON.stringify(cloudData));
+            setSyncStatus('synced');
+          } else if (localData.lastUpdated > cloudData.lastUpdated) {
+            // Local is newer -> Push to Cloud
+            localStorage.setItem(`${REMOTE_STORAGE_KEY}_${user.id}`, JSON.stringify(localData));
+            setSyncStatus('synced');
+          } else {
+            setSyncStatus('synced');
+          }
         }
       }
     } catch (e) {
+      console.error('Sync error:', e);
       setSyncStatus('error');
     }
   }, [user, isOnline, recipes, rotation, lastUpdated]);

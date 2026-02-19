@@ -1,10 +1,14 @@
-# Firebase Authentication Setup Guide
+# Firebase Setup Guide
 
-This guide will help you set up Firebase Authentication for Poe's Menu Planner.
+This guide will help you set up Firebase Authentication and Firestore Database for Poe's Menu Planner.
 
 ## Overview
 
-The application uses **Firebase Authentication** from Google Cloud Platform to provide secure user authentication. Firebase handles all the complexity of user management, password security, and session management.
+The application uses **Firebase** from Google Cloud Platform to provide:
+- **Firebase Authentication**: Secure user authentication and session management
+- **Firestore Database**: Cloud storage for recipes, enabling cross-browser/device sync
+
+Firebase handles all the complexity of user management, password security, session management, and cloud data storage.
 
 ## Prerequisites
 
@@ -32,7 +36,41 @@ The application uses **Firebase Authentication** from Google Cloud Platform to p
 6. Toggle the **"Enable"** switch to ON
 7. Click **"Save"**
 
-### 3. Register Your Web App
+### 3. Enable Firestore Database
+
+1. In your Firebase project dashboard, click on **"Firestore Database"** in the left sidebar
+2. Click on **"Create database"** button
+3. Choose a security mode:
+   - **Production mode**: Start with secure rules (recommended)
+   - **Test mode**: Allow all reads/writes for 30 days (easier for development)
+4. Click **"Next"**
+5. Select a location for your database (choose one close to your users)
+6. Click **"Enable"**
+
+### 4. Set Up Firestore Security Rules
+
+For production use, set up security rules to protect user data:
+
+1. In Firestore Database, go to the **"Rules"** tab
+2. Replace the default rules with:
+
+```javascript
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Allow users to read and write only their own vault data
+    match /vaults/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
+```
+
+3. Click **"Publish"**
+
+This ensures users can only access their own recipe data.
+
+### 5. Register Your Web App
 
 1. In the Firebase Console, click on the **gear icon** (⚙️) next to "Project Overview"
 2. Select **"Project settings"**
@@ -42,7 +80,7 @@ The application uses **Firebase Authentication** from Google Cloud Platform to p
 6. **Do not** check "Also set up Firebase Hosting" (unless you plan to use it)
 7. Click **"Register app"**
 
-### 4. Copy Your Firebase Configuration
+### 6. Copy Your Firebase Configuration
 
 After registering your app, you'll see a configuration object that looks like this:
 
@@ -57,7 +95,7 @@ const firebaseConfig = {
 };
 ```
 
-### 5. Configure Environment Variables
+### 7. Configure Environment Variables
 
 1. In your project root directory, copy the example environment file:
    ```bash
@@ -71,7 +109,7 @@ const firebaseConfig = {
    # Gemini API Key (for recipe extraction)
    API_KEY=your_gemini_api_key_here
    
-   # Firebase Authentication Configuration
+   # Firebase Configuration
    VITE_FIREBASE_API_KEY=AIzaSyXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
    VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
    VITE_FIREBASE_PROJECT_ID=your-project-id
@@ -82,7 +120,7 @@ const firebaseConfig = {
 
 4. Save the file
 
-### 6. Restart Your Development Server
+### 8. Restart Your Development Server
 
 If your development server is running, restart it to load the new environment variables:
 
@@ -92,25 +130,33 @@ If your development server is running, restart it to load the new environment va
 npm run dev
 ```
 
-### 7. Verify Authentication Works
+### 9. Verify Setup Works
 
 1. Open your browser to `http://localhost:3000`
-2. You should see "Firebase Auth Enabled" instead of "Demo Mode Active"
+2. You should see both indicators enabled:
+   - "Firebase Auth Enabled" 
+   - "Cloud Sync Active"
 3. Try creating a new account:
    - Click **"Create Account"** tab
    - Enter an email and password (minimum 6 characters)
    - Click **"Initialize Vault"**
 4. You should be logged in and see your recipe vault
-5. Test sign out by clicking on **Profile** and then **"Sign Out of Vault"**
+5. Add a test recipe to verify cloud sync
+6. Sign out and sign in again - your recipe should still be there
+7. Test cross-browser sync:
+   - Open the app in a different browser
+   - Sign in with the same account
+   - You should see the same recipes
 
 ## Demo Mode (No Firebase Configuration)
 
 If you don't configure Firebase environment variables, the application will run in **Demo Mode**:
 
 - Authentication is simulated locally
-- No backend validation
+- Recipes stored only in browser localStorage
+- No cross-browser/device sync
 - Good for development and testing
-- User data is stored only in browser localStorage
+- User data is not backed up to cloud
 
 ## Security Best Practices
 
@@ -135,6 +181,28 @@ If you don't configure Firebase environment variables, the application will run 
   1. Verify `.env.local` exists and contains all required variables
   2. Restart your development server
   3. Check that variables start with `VITE_` prefix
+
+### "Firestore is not configured" message
+- **Cause**: Firestore database not enabled in Firebase Console
+- **Solution**:
+  1. Go to Firebase Console > Firestore Database
+  2. Click "Create database" if not already created
+  3. Restart your development server
+
+### Recipes not syncing across browsers
+- **Cause**: Firestore not properly configured or security rules blocking access
+- **Solution**:
+  1. Verify "Cloud Sync Active" appears on login screen
+  2. Check Firestore security rules allow authenticated users to access their data
+  3. Open browser console and look for Firestore errors
+  4. Verify you're using the same account in both browsers
+
+### "Permission denied" errors in Firestore
+- **Cause**: Security rules are too restrictive or user not authenticated
+- **Solution**:
+  1. Verify you're signed in
+  2. Check Firestore security rules match the recommended configuration
+  3. Make sure rules allow `request.auth.uid == userId`
 
 ### "Email already in use" error
 - **Cause**: Trying to create an account with an email that already exists
@@ -166,24 +234,44 @@ If you don't configure Firebase environment variables, the application will run 
 
 When deploying to production:
 
-### 1. Configure Authorized Domains
+### 1. Configure Firestore Security Rules
+Ensure your Firestore security rules are set to production mode:
+```javascript
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /vaults/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
+```
+
+### 2. Configure Authorized Domains
 1. Go to Firebase Console > Authentication > Settings
 2. Scroll to **"Authorized domains"**
 3. Add your production domain (e.g., `myapp.com`)
 
-### 2. Set Environment Variables
+### 3. Set Environment Variables
 Configure environment variables in your hosting platform:
 - Vercel: Project Settings > Environment Variables
 - Netlify: Site Settings > Build & Deploy > Environment
 - Railway: Project > Variables
 - Other platforms: Follow their specific documentation
 
-### 3. Use Production Firebase Project
+### 4. Use Production Firebase Project
 Consider creating a separate Firebase project for production to isolate test data from production data.
+
+### 5. Monitor Firestore Usage
+- Go to Firebase Console > Firestore Database > Usage tab
+- Monitor read/write operations to stay within free tier limits
+- Set up billing alerts if needed
 
 ## Additional Resources
 
 - [Firebase Authentication Documentation](https://firebase.google.com/docs/auth)
+- [Firestore Documentation](https://firebase.google.com/docs/firestore)
+- [Firestore Security Rules](https://firebase.google.com/docs/firestore/security/get-started)
 - [Firebase Console](https://console.firebase.google.com/)
 - [Vite Environment Variables](https://vitejs.dev/guide/env-and-mode.html)
 - [React Firebase Tutorial](https://firebase.google.com/docs/auth/web/start)
@@ -193,8 +281,9 @@ Consider creating a separate Firebase project for production to isolate test dat
 If you encounter issues not covered in this guide:
 1. Check the browser console for error messages
 2. Review Firebase Console > Authentication > Users to verify user creation
-3. Consult Firebase documentation
-4. Open an issue in the GitHub repository
+3. Check Firebase Console > Firestore Database > Data to verify data is being saved
+4. Consult Firebase documentation
+5. Open an issue in the GitHub repository
 
 ---
 

@@ -12,9 +12,10 @@ View your app in AI Studio: https://ai.studio/apps/drive/1c1otsfnIIlp2p9dt2qAoxK
 
 - 🔐 **Secure Authentication**: Firebase Authentication with email/password
 - 📦 **Recipe Management**: Store and organize your favorite recipes
-- 🔄 **Cloud Sync**: Automatic synchronization across devices
+- 🔄 **Cloud Sync**: Automatic synchronization across devices using Firestore
 - 🤖 **AI-Powered**: Recipe extraction using Google Gemini AI
-- 📱 **Offline Support**: Works offline with local storage fallback
+- 📱 **Cross-Browser Access**: Access your recipes from any browser or device
+- 💾 **Offline Support**: Works offline with local storage fallback
 
 ## Run Locally
 
@@ -26,7 +27,7 @@ View your app in AI Studio: https://ai.studio/apps/drive/1c1otsfnIIlp2p9dt2qAoxK
 npm install
 ```
 
-### 2. Set up Firebase Authentication
+### 2. Set up Firebase Authentication and Firestore
 
 #### Create a Firebase Project
 
@@ -39,6 +40,29 @@ npm install
 1. In your Firebase project, navigate to **Authentication** > **Sign-in method**
 2. Click on **Email/Password**
 3. Enable the provider and click **Save**
+
+#### Enable Firestore Database
+
+1. In your Firebase project, navigate to **Firestore Database**
+2. Click **"Create database"**
+3. Choose production mode or test mode
+4. Select a location for your database
+5. Click **"Enable"**
+
+#### Set Up Security Rules
+
+In Firestore Database, go to the **Rules** tab and add:
+
+```javascript
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /vaults/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+  }
+}
+```
 
 #### Get Your Firebase Configuration
 
@@ -83,20 +107,22 @@ The app will be available at `http://localhost:3000`
 
 ### How It Works
 
-The application uses **Firebase Authentication** from Google Cloud Platform for secure user management:
+The application uses **Firebase Authentication** and **Firestore Database** from Google Cloud Platform:
 
 1. **Sign Up**: New users create an account with email and password
 2. **Sign In**: Existing users authenticate with their credentials
 3. **Session Management**: Firebase automatically manages user sessions
-4. **Cloud Sync**: User data is synced to the cloud after authentication
-5. **Sign Out**: Secure logout clears the session
+4. **Cloud Sync**: Recipe data is automatically synced to Firestore
+5. **Cross-Device Access**: Access your recipes from any browser or device
+6. **Sign Out**: Secure logout clears the session
 
 ### Demo Mode
 
-If Firebase is not configured, the app runs in **demo mode** with simulated authentication. This is useful for:
-- Development and testing
-- Demos without backend setup
-- Offline usage
+If Firebase is not configured, the app runs in **demo mode** with:
+- Simulated authentication
+- Local storage only (no cloud sync)
+- Good for development and testing
+- Recipes not accessible across browsers
 
 To use demo mode, simply run the app without configuring Firebase environment variables.
 
@@ -121,6 +147,7 @@ User Input → Firebase Auth → Session Token → Cloud Sync → Local Storage
 ### File Structure
 
 - `services/firebase.ts` - Firebase Authentication service
+- `services/firestore.ts` - Firestore Database service for cloud sync
 - `services/gemini.ts` - Gemini AI integration
 - `App.tsx` - Main application component with auth logic
 - `types.ts` - TypeScript type definitions
@@ -131,12 +158,17 @@ User Input → Firebase Auth → Session Token → Cloud Sync → Local Storage
 
 1. Verify all environment variables are set correctly in `.env.local`
 2. Ensure Email/Password provider is enabled in Firebase Console
-3. Check browser console for error messages
-4. Restart the development server after changing `.env.local`
+3. Ensure Firestore Database is created and enabled
+4. Check Firestore security rules allow authenticated users to access their data
+5. Check browser console for error messages
+6. Restart the development server after changing `.env.local`
 
 ### Common Issues
 
 - **"Firebase is not configured"**: Add Firebase credentials to `.env.local`
+- **"Firestore is not configured"**: Enable Firestore Database in Firebase Console
+- **"Recipes not syncing"**: Check that "Cloud Sync Active" shows on login screen
+- **"Permission denied"**: Verify Firestore security rules are properly configured
 - **"Email already in use"**: Use the Sign In tab instead of Create Account
 - **"Invalid email"**: Check email format (must include @ and domain)
 - **"Weak password"**: Use at least 6 characters
