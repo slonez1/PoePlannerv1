@@ -23,9 +23,7 @@ import {
   Firestore,
   doc,
   getDoc,
-  setDoc,
-  serverTimestamp,
-  Timestamp
+  setDoc
 } from 'firebase/firestore';
 import { VaultData } from '../types';
 
@@ -69,6 +67,20 @@ export const isFirestoreConfigured = (): boolean => {
 };
 
 /**
+ * Normalize a timestamp value to a number
+ * Handles both number timestamps and Firestore Timestamp objects
+ */
+const normalizeTimestamp = (timestamp: number | { toMillis?: () => number } | null | undefined): number => {
+  if (typeof timestamp === 'number') {
+    return timestamp;
+  }
+  if (timestamp?.toMillis && typeof timestamp.toMillis === 'function') {
+    return timestamp.toMillis();
+  }
+  return 0;
+};
+
+/**
  * Save user vault data to Firestore
  * @param userId - The authenticated user's ID
  * @param vaultData - The vault data to save (recipes, rotation, lastUpdated)
@@ -81,10 +93,7 @@ export const saveVaultToCloud = async (userId: string, vaultData: VaultData): Pr
 
   try {
     const userVaultRef = doc(db, 'vaults', userId);
-    await setDoc(userVaultRef, {
-      ...vaultData,
-      updatedAt: serverTimestamp()
-    });
+    await setDoc(userVaultRef, vaultData);
     console.log('Vault saved to Firestore successfully');
   } catch (error) {
     console.error('Error saving vault to Firestore:', error);
@@ -108,11 +117,16 @@ export const getVaultFromCloud = async (userId: string): Promise<VaultData | nul
 
     if (docSnap.exists()) {
       const data = docSnap.data();
-      // Convert Firestore Timestamp to number if needed
+      
+      // Log warning if recipe or rotation data is missing
+      if (!data.recipes || !data.rotation) {
+        console.warn('Vault data missing recipes or rotation fields, using defaults');
+      }
+      
       const vaultData: VaultData = {
         recipes: data.recipes || [],
         rotation: data.rotation || [],
-        lastUpdated: data.lastUpdated || 0
+        lastUpdated: normalizeTimestamp(data.lastUpdated)
       };
       console.log('Vault retrieved from Firestore successfully');
       return vaultData;
@@ -152,11 +166,14 @@ export const syncVaultWithCloud = async (
     }
 
     // Both local and cloud data exist - use last-write-wins strategy
-    if (cloudData.lastUpdated > localData.lastUpdated) {
+    const cloudTimestamp = normalizeTimestamp(cloudData.lastUpdated);
+    const localTimestamp = normalizeTimestamp(localData.lastUpdated);
+    
+    if (cloudTimestamp > localTimestamp) {
       // Cloud is newer - return cloud data
       console.log('Cloud data is newer, using cloud version');
       return cloudData;
-    } else if (localData.lastUpdated > cloudData.lastUpdated) {
+    } else if (localTimestamp > cloudTimestamp) {
       // Local is newer - save to cloud and return local
       console.log('Local data is newer, pushing to cloud');
       await saveVaultToCloud(userId, localData);
@@ -170,11 +187,4 @@ export const syncVaultWithCloud = async (
     // On error, return local data and let the app continue working
     return localData;
   }
-};
-
-export default {
-  isFirestoreConfigured,
-  saveVaultToCloud,
-  getVaultFromCloud,
-  syncVaultWithCloud
 };
